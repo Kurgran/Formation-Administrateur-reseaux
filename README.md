@@ -10,22 +10,26 @@ Chaque projet illustre une problématique précise, les méthodes que j’ai mis
 
 ## Ce que vous trouverez ici
 
- Mes projets de formation, dans toute leur réalité
-Administration Système
+## Ce que vous trouverez ici
+
+### **Mes projets de formation, dans toute leur réalité**
+
+**Administration Système**  
 Ici, vous découvrirez mes aventures avec Linux et Windows Server ! Installation de serveurs, gestion des utilisateurs qui ne veulent pas coopérer, scripts d'automatisation qui ont parfois plus buggé que prévu... Je documente tout : les succès, mais aussi les plantages mémorables et comment j'ai fini par m'en sortir.
-Infrastructure Réseau
+
+**Infrastructure Réseau**  
 Mes expérimentations avec les équipements Cisco, la mise en place de VLANs (avec quelques cheveux arrachés au passage), et mes sessions de diagnostic réseau où j'ai appris que "ça marche pas" n'est pas un symptôme très précis. Vous trouverez mes configurations, mes analyses Wireshark, et surtout mes notes sur ce qui m'a vraiment posé problème.
-Sécurité Informatique
+
+**Sécurité Informatique**  
 La partie la plus passionnante selon moi ! Mes premiers audits de sécurité, les déploiements de solutions de protection, et mes réflexions sur la gestion d'incidents. J'y partage mes découvertes, mes questionnements, et parfois mes petites victoires quand j'arrive enfin à comprendre un concept qui me résistait.
 
-Au-delà de la technique
+### ** Au-delà de la technique**
 Dans chaque projet, vous trouverez :
-
-La procédure complète avec captures d'écran et configurations
-Mes galères et comment je les ai résolues (parce que c'est souvent là qu'on apprend le plus)
-Mes ressentis et remarques sur les outils, les méthodes, ce qui m'a surpris
-Les questions que je me pose encore et les pistes d'amélioration que j'envisage
-Mes scripts et config files commentés pour que vous compreniez ma logique
+- **La procédure complète** avec captures d'écran et configurations
+- **Mes galères et comment je les ai résolues** (parce que c'est souvent là qu'on apprend le plus)
+- **Mes ressentis et remarques** sur les outils, les méthodes, ce qui m'a surpris
+- **Les questions que je me pose encore** et les pistes d'amélioration que j'envisage
+- **Mes scripts et config files** commentés pour que vous compreniez ma logique
 
 En gros, c'est mon carnet de route d'apprentissage en temps réel, avec les réussites ET les moments où j'ai eu envie de tout jeter par la fenêtre !
 
