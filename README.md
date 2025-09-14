@@ -22,5 +22,4 @@ N’hésitez pas à parcourir les dossiers pour découvrir chaque projet en dét
 
 Merci de votre visite !
 
-[Votre Nom/Prénom]  
-[Optionnel : lien LinkedIn / portfolio]
+Clément
