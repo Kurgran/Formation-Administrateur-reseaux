@@ -10,7 +10,6 @@ Chaque projet illustre une problématique précise, les méthodes que j’ai mis
 
 ## Ce que vous trouverez ici
 
-## Ce que vous trouverez ici
 
 ### **Mes projets de formation, dans toute leur réalité**
 
