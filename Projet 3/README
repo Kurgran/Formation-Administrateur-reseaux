@@ -1,1 +1,174 @@
-En cours
+# Projet  - Conception Réseau d'Incubateur
+
+## 📋 Contexte
+
+Un incubateur d'entreprises accueillant plusieurs startups dans un bâtiment de 5 étages. L'objectif du projet est de concevoir l'infrastructure réseau permettant de répondre aux besoins spécifiques de chaque entreprise hébergée tout en mutualisant les ressources communes.
+
+La conception, la réalisation et la maintenance de ce réseau sont à la charge de l'incubateur.
+
+## 🎯 Objectifs du Projet
+
+Concevoir et documenter l'architecture réseau complète du bâtiment  comprenant :
+
+1. Le **schéma physique du réseau** s'appuyant sur les plans du bâtiment pour positionner les équipements
+2. Le **schéma logique** listant les réseaux ainsi que les services réseau à installer
+3. Le **plan d'adressage réseau** récapitulatif de l'incubateur et des startups présentes
+4. L'intégration de l'ensemble dans le **DAT** (Dossier d'Architecture Technique) fourni par la DSI
+
+## 🏢 Infrastructure du Bâtiment
+
+### Composition
+**Bâtiment de 5 étages** organisé comme suit :
+- **RDC :** Accueil, salle serveur (datacenter), contrôle d'accès
+- **Étages 1 à 5 :** Salles communes (coworking) et bureaux dédiés aux startups
+
+### Périmètre Réseau
+L'infrastructure doit intégrer :
+- Système de vidéosurveillance IP
+- Système de contrôle d'accès par badges
+- Salle serveur hébergeant tous les serveurs 
+- Routeur permettant la connexion Internet
+- Firewall pour la sécurisation du réseau
+- Switches Ethernet et points d'accès Wi-Fi pour la connexion LAN
+
+## 🔧 Architecture Réseau Conçue
+
+### Segmentation VLAN
+Pour assurer l'isolation et la sécurité, le réseau a été segmenté en VLANs distincts :
+- **VLAN Administration :** Gestion du réseau et des équipements
+- **VLAN Serveurs :** Infrastructure IT centralisée
+- **VLAN Imprimantes :** Services d'impression mutualisés
+- **VLAN Caméras :** Vidéosurveillance isolée
+- **VLAN Contrôle d'accès :** Badges et système de sécurité physique
+- **VLANs métier :** Un VLAN dédié par département de chaque startup pour garantir l'isolation des données
+
+Cette segmentation permet de :
+- Séparer les flux de données par fonction/entreprise
+- Améliorer la sécurité en isolant les services sensibles
+- Faciliter la gestion et le dépannage
+- Préparer l'arrivée de nouvelles startups
+
+### Plan d'Adressage IP - Technique VLSM
+
+Le plan d'adressage a été réalisé en utilisant la technique **VLSM (Variable Length Subnet Mask)**, permettant d'optimiser l'utilisation des adresses IP en adaptant la taille des sous-réseaux aux besoins réels de chaque segment.
+
+**Principe appliqué :**
+- Calcul du nombre d'hôtes nécessaires par VLAN
+- Attribution d'un masque réseau approprié pour éviter le gaspillage d'adresses
+- Vérification de l'absence de chevauchement entre les plages IP
+- Réservation d'espace d'adressage pour l'évolution future
+
+**Exemple de dimensionnement :**
+- Services avec peu d'équipements (imprimantes, caméras) : masques /28 ou /29
+- Départements utilisateurs : masques /25 ou /24 selon la taille
+- Services critiques : plages dédiées avec espace de croissance
+
+### Services Réseau Implémentés
+
+**Services communs obligatoires :**
+- **DHCP :** Attribution automatique d'adresses IP par VLAN avec passerelle et DNS configurés
+- **NAT/PAT :** Accès Internet mutualisé pour toutes les entreprises
+- **Firewall :** Règles de sécurité entre VLANs et vers Internet
+
+**Routage inter-VLAN :**
+Configuration du routage entre les segments pour permettre les communications contrôlées (accès aux serveurs, imprimantes) tout en maintenant l'isolation sécuritaire.
+
+## 🛠️ Choix du Matériel Réseau
+
+### Switches
+Deux types de switches ont été identifiés selon les besoins :
+
+**Switches Manageables (Niveau 2/3) :**
+- Configuration VLANs et trunk ports
+- Gestion centralisée SNMP
+- Routage inter-VLAN (pour core switches)
+- Utilisés pour : cœur de réseau, distribution par étage
+
+**Switches Non-Manageables :**
+- Simples commutateurs plug-and-play
+- Aucune configuration requise
+- Utilisés pour : extension de ports en bout de chaîne si besoin
+
+**Critères de sélection :**
+- Nombre de ports adaptés à la charge (24 ou 48 ports)
+- Support 802.1Q (VLANs) pour les switches manageables
+- Débit Gigabit minimum
+- Évolutivité et redondance
+
+### Points d'Accès Wi-Fi
+- Standards 802.11ac/ax pour débit optimal
+- Gestion centralisée par contrôleur
+- SSID multiples avec isolation par VLAN
+
+## 📁 Livrables Produits
+
+```
+project/
+├── schema_physique.pdf          # Positionnement des équipements sur plans
+├── schema_logique.pdf           # Topologie réseau et VLANs
+├── plan_adressage.xlsx          # Tableau récapitulatif VLSM
+└── DAT.pdf            # Dossier d'Architecture Technique complet
+```
+
+**Contenu du DAT :**
+- Contexte et objectifs du projet
+- Schéma physique avec légende des équipements
+- Schéma logique avec VLANs et services
+- Plan d'adressage détaillé avec justifications
+- Spécifications techniques du matériel
+- Règles de sécurité et flux autorisés
+
+## 🧠 Compétences Développées
+
+### Planification d'Adressage IP
+- **Maîtrise du calcul de masques réseau :** Compréhension approfondie des masques CIDR (/24, /25, /26, /28, /29, /30) et de leur impact sur le nombre d'hôtes disponibles
+- **Optimisation VLSM :** Capacité à adapter la taille des sous-réseaux pour maximiser l'utilisation des adresses IP et éviter le gaspillage
+- **Agrégation de routes :** Organisation hiérarchique du plan d'adressage pour faciliter le routage
+
+### Architecture Réseau
+- Conception de topologies hiérarchiques (Core/Distribution/Access)
+- Segmentation logique avec VLANs pour l'isolation de services
+- Compréhension du routage inter-VLAN et des flux de données
+
+### Choix et Dimensionnement Matériel
+- **Switches manageables vs non-manageables :** Identification des cas d'usage appropriés pour chaque type
+- Évaluation des besoins en ports et en bande passante
+- Sélection de matériel adapté aux contraintes budgétaires et techniques
+
+### Documentation Technique
+- Réalisation de schémas réseau professionnels (physiques et logiques)
+- Rédaction de spécifications techniques claires
+- Production de DAT conformes aux standards de l'industrie
+
+## 🔒 Aspects Sécurité
+
+L'architecture intègre plusieurs niveaux de sécurité :
+- **Segmentation :** Isolation des services sensibles (caméras, contrôle d'accès)
+- **Cloisonnement :** Séparation des données entre startups
+- **Filtrage :** Règles firewall contrôlant les flux inter-VLANs
+- **Évolutivité sécurisée :** Procédure standardisée pour l'intégration de nouvelles entreprises
+
+## 📈 Évolutivité
+
+Le plan d'adressage et l'architecture permettent :
+- L'ajout de nouvelles startups sans refonte majeure
+- La croissance du nombre d'utilisateurs par entreprise
+- L'intégration de nouveaux services (VoIP, IoT, etc.)
+- La scalabilité du matériel (ajout de switches en stack)
+
+## 🛠️ Technologies Utilisées
+
+- **Conception graphique :** Draw.io / Diagrams.net
+- **Planification IP :** Calculateurs VLSM, tableurs Excel
+- **Protocoles réseau :** VLANs (802.1Q), DHCP, NAT, routage statique/dynamique
+- **Standards :** Architecture 3-tiers, bonnes pratiques Cisco
+
+
+
+Formation Administrateur Systèmes, Réseaux et Sécurité (ASRS)
+
+---
+
+> Ce projet démontre la capacité à concevoir une infrastructure réseau complète, sécurisée et évolutive, en appliquant les bonnes pratiques d'adressage IP, de segmentation et de documentation technique.
+
+**Tags :** `Réseau` `VLAN` `VLSM` `Architecture` `Segmentation` `ASRS`
