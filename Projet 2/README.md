@@ -46,7 +46,7 @@ Ce projet met en lumière l'importance cruciale des sauvegardes, de la gestion s
 - **Réseau :** Configuration en Accès par Pont (Bridged), DHCP, notions de base IPsec (pour le scénario VPN).
 - **Sécurité :** mysql_secure_installation, configuration sécurisée Apache (DocumentRoot vers `/public`), gestion des permissions Linux (`chown`, `chmod`), pare-feu (concepts abordés lors du dépannage SSH).
 - **Méthodologie :** ITIL v3/v4 (concepts de Service Desk, Gestion des Incidents, Gestion des Demandes, Priorisation Impact/Urgence, Escalade, Base de Connaissances, SACM).
-- **Outils Annexes :** Client SSH (MobaXterm, OpenSSH), scp/SFTP (FileZilla, WinSCP), diagrams.net (pour le logigramme).
+
 
 ---
 
