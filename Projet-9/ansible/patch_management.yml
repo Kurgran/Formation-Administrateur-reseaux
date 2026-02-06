@@ -1,0 +1,188 @@
+---
+# ============================================
+# Playbook : patch_management.yml
+# Description : Gestion des mises à jour Windows et Linux
+# Auteur : Clément
+# Date : Janvier 2026
+# Version : 1.0 - Patch Management Unifié
+# ============================================
+
+- name: 🔄 Gestion des mises à jour sur le parc Barzini
+  hosts: barzini
+  gather_facts: yes
+  
+  vars:
+    # Logs
+    log_dir_linux: "/var/log/ansible"
+    log_dir_windows: "C:\\Logs\\Ansible"
+  
+  tasks:
+    # ==========================================
+    # SECTION GLOBALE : Informations
+    # ==========================================
+    
+    - name: "[GLOBAL] Affichage des informations système"
+      debug:
+        msg:
+          - "=========================================="
+          - "🔄 PATCH MANAGEMENT BARZINI"
+          - "=========================================="
+          - "Host : {{ inventory_hostname }}"
+          - "OS Family : {{ ansible_os_family }}"
+          - "Distribution : {{ ansible_distribution | default('Windows') }}"
+          - "Version : {{ ansible_distribution_version | default(ansible_os_name) }}"
+          - "=========================================="
+      tags: [always]
+    
+    # ==========================================
+    # SECTION LINUX : Mises à jour APT
+    # ==========================================
+    
+    - name: "📋 [LINUX] Gestion des mises à jour"
+      become: yes
+      block:
+        - name: "[LINUX] Création du répertoire de logs"
+          file:
+            path: "{{ log_dir_linux }}"
+            state: directory
+            mode: '0755'
+        
+        - name: "[LINUX] Mise à jour du cache APT"
+          apt:
+            update_cache: yes
+            cache_valid_time: 3600
+          register: apt_update
+        
+        - name: "[LINUX] Liste des paquets à mettre à jour"
+          shell: apt list --upgradable 2>/dev/null | grep -v "Listing" | wc -l
+          register: packages_upgradable
+          changed_when: false
+        
+        - name: "[LINUX] Affichage du nombre de mises à jour disponibles"
+          debug:
+            msg: "{{ packages_upgradable.stdout }} paquet(s) à mettre à jour"
+        
+        - name: "[LINUX] Installation des mises à jour"
+          apt:
+            upgrade: dist
+            autoremove: yes
+            autoclean: yes
+          register: apt_upgrade
+          when: packages_upgradable.stdout|int > 0
+        
+        - name: "[LINUX] Vérification si redémarrage nécessaire"
+          stat:
+            path: /var/run/reboot-required
+          register: reboot_required_file
+        
+        - name: "[LINUX] Redémarrage si nécessaire"
+          reboot:
+            msg: "Redémarrage pour appliquer les mises à jour"
+            reboot_timeout: 300
+          when: reboot_required_file.stat.exists
+          register: linux_reboot
+        
+        - name: "[LINUX] Rapport des mises à jour"
+          debug:
+            msg:
+              - "--- Rapport Linux ---"
+              - "Mises à jour disponibles : {{ packages_upgradable.stdout }}"
+              - "Statut : {{ 'Mises à jour installées ✅' if apt_upgrade.changed else 'Système à jour ℹ️' }}"
+              - "Redémarrage : {{ 'Effectué ✅' if linux_reboot.changed | default(false) else 'Non nécessaire ℹ️' }}"
+      
+      when: ansible_os_family != "Windows"
+      tags: [linux, updates]
+    
+    # ==========================================
+    # SECTION WINDOWS : Mises à jour Windows Update
+    # ==========================================
+    
+    - name: "📋 [WINDOWS] Gestion des mises à jour"
+      block:
+        - name: "[WINDOWS] Création du répertoire de logs"
+          win_file:
+            path: "{{ log_dir_windows }}"
+            state: directory
+        
+        - name: "[WINDOWS] Recherche des mises à jour disponibles"
+          win_updates:
+            category_names:
+              - CriticalUpdates
+              - SecurityUpdates
+              - UpdateRollups
+              - Updates
+            state: searched
+          register: windows_updates_available
+        
+        - name: "[WINDOWS] Affichage du nombre de mises à jour disponibles"
+          debug:
+            msg: "{{ windows_updates_available.found_update_count }} mise(s) à jour disponible(s)"
+        
+        - name: "[WINDOWS] Installation des mises à jour"
+          win_updates:
+            category_names:
+              - CriticalUpdates
+              - SecurityUpdates
+              - UpdateRollups
+              - Updates
+            state: installed
+            reboot: yes
+            reboot_timeout: 3600
+          register: windows_updates_result
+          async: 7200
+          poll: 60
+          when: windows_updates_available.found_update_count > 0
+        
+        - name: "[WINDOWS] Rapport des mises à jour"
+          debug:
+            msg:
+              - "--- Rapport Windows ---"
+              - "Mises à jour disponibles : {{ windows_updates_available.found_update_count }}"
+              - "Mises à jour installées : {{ windows_updates_result.installed_update_count | default(0) }}"
+              - "Mises à jour échouées : {{ windows_updates_result.failed_update_count | default(0) }}"
+              - "Redémarrage : {{ 'Effectué ✅' if windows_updates_result.rebooted | default(false) else 'Non nécessaire ℹ️' }}"
+              - "Statut : {{ '✅ SUCCÈS' if windows_updates_result.failed_update_count | default(0) == 0 else '⚠️ AVEC ERREURS' }}"
+      
+      when: ansible_os_family == "Windows"
+      tags: [windows, updates]
+    
+    # ==========================================
+    # SECTION FINALE : Récapitulatif
+    # ==========================================
+    
+    - name: "🎉 [FINAL] Récapitulatif du patch management"
+      debug:
+        msg:
+          - "=========================================="
+          - "✅ PATCH MANAGEMENT TERMINÉ"
+          - "=========================================="
+          - "Host : {{ inventory_hostname }}"
+          - "OS : {{ ansible_os_family }}"
+          - "Statut : ✅ SUCCÈS"
+          - "=========================================="
+      tags: [always, report]
+
+# ============================================
+# NOTES D'UTILISATION
+# ============================================
+#
+# DÉPLOIEMENT COMPLET (Windows + Linux) :
+#   kinit Administrateur@BARZINI.BA
+#   ansible-playbook -i /etc/ansible/inventories/hosts \
+#       patch_management.yml -K
+#
+# DÉPLOIEMENT WINDOWS UNIQUEMENT :
+#   kinit Administrateur@BARZINI.BA
+#   ansible-playbook -i /etc/ansible/inventories/hosts \
+#       patch_management.yml --limit windows
+#
+# DÉPLOIEMENT LINUX UNIQUEMENT :
+#   ansible-playbook -i /etc/ansible/inventories/hosts \
+#       patch_management.yml --limit linux -K
+#
+# IMPORTANT :
+# - Les mises à jour Windows peuvent prendre 1-2 heures
+# - Le système peut redémarrer automatiquement
+# - Prévoir une fenêtre de maintenance
+#
+# ============================================
