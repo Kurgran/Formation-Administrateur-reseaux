@@ -688,12 +688,6 @@ sudo tail -f /var/log/krb5libs.log  # Si configuré
 
 ## 📝 Notes
 
-**Points d'amélioration possibles :**
-- Déployer un second contrôleur de domaine (DC-02) pour la haute disponibilité
-- Implémenter la segmentation VLAN (VLAN management, VLAN utilisateurs, DMZ pour GLPI)
-- Intégrer un SIEM (Wazuh, Splunk) pour le monitoring des logs AD et détection d'anomalies
-- Automatiser la sauvegarde des GPO et de la configuration AD via scripts
-- Créer des playbooks Ansible pour le patch management automatisé (Windows Update + apt upgrade)
 
 **Ressources utiles :**
 - [Documentation Microsoft AD DS](https://learn.microsoft.com/windows-server/identity/ad-ds/)
