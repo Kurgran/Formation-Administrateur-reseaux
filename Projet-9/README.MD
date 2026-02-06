@@ -1,6 +1,6 @@
 # Infrastructure IT Entreprise (AD, GLPI, Ansible)
 
-**Description courte** : Infrastructure complète d'entreprise avec Active Directory, gestion de parc GLPI et automatisation Ansible pour un environnement hybride Windows/Linux
+**Description** : Infrastructure complète d'entreprise avec Active Directory, gestion de parc GLPI et automatisation Ansible pour un environnement hybride Windows/Linux
 **Contexte homelab** : Déployé sur Proxmox (4 VMs dédiées)
 **Date** : Février 2026
 
