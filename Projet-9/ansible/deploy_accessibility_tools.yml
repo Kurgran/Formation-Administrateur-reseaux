@@ -1,0 +1,122 @@
+---
+# ============================================
+# Playbook : deploy_accessibility_tools.yml
+# Description : Déploiement des outils d'accessibilité (Version Finale)
+# Auteur : Clément
+# Version : 5.1 - Correction paramètre shortcut (directory)
+# ============================================
+
+- name: Déploiement des outils d'accessibilité sur le parc Barzini
+  hosts: barzini
+  gather_facts: yes
+
+  vars:
+    # --- Variables Globales ---
+    log_dir_linux: "/var/log/ansible"
+    log_dir_windows: "C:\\Logs\\Ansible"
+    
+    # --- Configuration des Outils ---
+    tool_linux: "Kontrast"
+    package_linux: "kontrast"
+    
+    tool_windows: "Colour Contrast Analyser"
+    package_windows: "colour-contrast-analyser"
+    
+    # --- Cible Windows Confirmée (Ne pas modifier) ---
+    cca_target_exe: 'C:\ProgramData\chocolatey\bin\cca.exe'
+    shortcut_dest: 'C:\Users\Public\Desktop\Colour Contrast Analyser.lnk'
+
+  tasks:
+    # ==========================================
+    # 1. INITIALISATION
+    # ==========================================
+    - name: "[GLOBAL] Affichage du contexte de déploiement"
+      debug:
+        msg:
+          - "=========================================="
+          - "DEPLOIEMENT BARZINI - VERSION FINALE"
+          - "OS Cible : {{ ansible_os_family }}"
+          - "Cible EXE : {{ cca_target_exe if ansible_os_family == 'Windows' else 'N/A' }}"
+          - "=========================================="
+      tags: [always]
+
+    # ==========================================
+    # 2. SEQUENCE LINUX (Stable)
+    # ==========================================
+    - block:
+      - name: "[LINUX] Mise à jour des dépôts"
+        apt:
+          update_cache: yes
+          cache_valid_time: 3600
+
+      - name: "[LINUX] Installation du paquet Kontrast"
+        apt:
+          name: "{{ package_linux }}"
+          state: present
+
+      - name: "[LINUX] Vérification du répertoire de logs"
+        file:
+          path: "{{ log_dir_linux }}"
+          state: directory
+          mode: '0755'
+      become: yes
+      when: ansible_os_family != "Windows"
+      tags: [linux]
+
+    # ==========================================
+    # 3. SEQUENCE WINDOWS (Optimisée)
+    # ==========================================
+    - block:
+      # --- A. Gestionnaire de paquets ---
+      - name: "[WINDOWS] Vérification de l'état de Chocolatey"
+        win_shell: choco --version
+        register: choco_check
+        failed_when: false
+        changed_when: false
+        tags: [windows]
+
+      - name: "[WINDOWS] Installation de Chocolatey (si absent)"
+        win_shell: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        when: choco_check.rc != 0
+        tags: [windows]
+
+      # --- B. Installation Applicative ---
+      - name: "[WINDOWS] Installation de CCA via Chocolatey"
+        win_chocolatey:
+          name: "{{ package_windows }}"
+          state: present
+        tags: [windows]
+
+      # --- C. Création du Raccourci (Point Critique) ---
+      
+      # Nettoyage préventif : On supprime tout raccourci existant (même corrompu)
+      - name: "[WINDOWS] Nettoyage de l'ancien raccourci"
+        win_file:
+          path: "{{ shortcut_dest }}"
+          state: absent
+        tags: [windows]
+
+      # Création propre avec le paramètre corrigé 'directory'
+      - name: "[WINDOWS] Création du raccourci Bureau"
+        win_shortcut:
+          src: "{{ cca_target_exe }}"
+          dest: "{{ shortcut_dest }}"
+          description: "Outil Accessibilité Barzini"
+          icon: "{{ cca_target_exe }},0"
+          # CORRECTION ICI : 'working_directory' -> 'directory'
+          directory: "{{ cca_target_exe | win_dirname }}"
+        tags: [windows]
+
+      # --- D. Finalisation ---
+      - name: "[WINDOWS] Validation du répertoire de logs"
+        win_file:
+          path: "{{ log_dir_windows }}"
+          state: directory
+        tags: [windows]
+
+      when: ansible_os_family == "Windows"
+      # On utilise les droits natifs (pas de become) pour éviter les conflits UAC
+      become: false
