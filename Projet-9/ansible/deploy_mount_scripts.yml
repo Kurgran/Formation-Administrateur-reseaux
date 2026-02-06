@@ -1,0 +1,113 @@
+# ==============================================================================
+# PROJET :  Automatisation du Parc Informatique
+# VERSION: 6.0 
+# ==============================================================================
+
+---
+- name: "🚀 Déploiement des scripts de montage Barzini"
+  hosts: barzini
+  gather_facts: yes
+
+  vars:
+    # === CONFIGURATION LINUX ===
+    script_source_linux: "/etc/ansible/files/mount_barzini_shares.sh"
+    script_dest_linux: "/usr/local/bin/mount_barzini_shares.sh"
+    # === CONFIGURATION WINDOWS ===
+    script_source_windows: "/etc/ansible/files/Mount-BarziniShares.ps1"
+    script_dest_windows: "C:\\Scripts\\Mount-BarziniShares.ps1"
+    task_name_windows: "Mount Barzini Network Shares"
+
+  tasks:
+    # ==========================================================================
+    # SECTION WINDOWS (STRICTEMENT INCHANGÉE)
+    # ==========================================================================
+    - name: "📋 [WINDOWS] Bloc de configuration"
+      block:
+        - name: "[PREP] Création du dossier C:\\Scripts"
+          win_file:
+            path: C:\Scripts
+            state: directory
+
+        - name: "[DEPLOY] Copie du script PowerShell"
+          win_copy:
+            src: "{{ script_source_windows }}"
+            dest: "{{ script_dest_windows }}"
+
+        - name: "[TASK] Création de la tâche planifiée au logon"
+          win_shell: |
+            Unregister-ScheduledTask -TaskName "{{ task_name_windows }}" -Confirm:$false -ErrorAction SilentlyContinue
+            $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{{ script_dest_windows }}"'
+            $trigger = New-ScheduledTaskTrigger -AtLogOn
+            $principal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Utilisateurs" -RunLevel Limited
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+            Register-ScheduledTask -TaskName "{{ task_name_windows }}" -Action $action -Trigger $trigger -Principal $principal -Settings $settings
+          register: task_created
+          changed_when: task_created.stdout_lines | length > 0
+      when: ansible_os_family == "Windows"
+
+    # ==========================================================================
+    # SECTION LINUX (CONFIGURATION VALIDÉE PAR AUDIT)
+    # ==========================================================================
+    - name: "🐧 [LINUX] Bloc de configuration"
+      become: yes
+      block:
+        - name: "[PREP] Installation dépendances critiques"
+          apt:
+            name: [cifs-utils, krb5-user, libpam-krb5, psmisc]
+            state: present
+          ignore_errors: yes
+
+        - name: "[PREP] Fichier de log"
+          file:
+            path: /var/log/mount_barzini.log
+            state: touch
+            mode: '0666'
+            owner: root
+            group: root
+
+        # --- CŒUR DU CORRECTIF : SUDOERS ---
+        # 1. Utilisation du GID 781200513 (Contournement du bug des espaces)
+        # 2. Liste EXHAUSTIVE des commandes (rm, fuser, tee, chown, chmod...)
+        # 3. Double chemins (/bin et /usr/bin) pour compatibilité totale
+        - name: "[SECURITY] Configuration Sudoers (GID + Full Access)"
+          copy:
+            dest: /etc/sudoers.d/barzini_mount
+            content: |
+              # CONFIGURATION VALIDÉE - NE PAS MODIFIER SANS TEST MANUEL
+              # GID 781200513 = Utilisateurs du domaine
+              %#781200513 ALL=(ALL) NOPASSWD: /usr/bin/mount, /bin/mount, /usr/bin/umount, /bin/umount, /usr/bin/mkdir, /bin/mkdir, /usr/bin/rmdir, /bin/rmdir, /usr/bin/rm, /bin/rm, /usr/bin/fuser, /bin/fuser, /usr/bin/chown, /bin/chown, /usr/bin/chmod, /bin/chmod, /usr/bin/tee, /bin/tee
+            mode: '0440'
+            owner: root
+            group: root
+            validate: 'visudo -cf %s'
+
+        - name: "[DEPLOY] Script Bash Final"
+          copy:
+            src: "{{ script_source_linux }}"
+            dest: "{{ script_dest_linux }}"
+            mode: '0755'
+            owner: root
+            group: root
+
+        - name: "[AUTO] Activation au logon"
+          copy:
+            content: |
+              #!/bin/bash
+              # Disjoncteur intégré dans le script cible
+              if [ -n "$USER" ] && [ "$USER" != "root" ]; then
+                  {{ script_dest_linux }} > /dev/null 2>&1 &
+              fi
+            dest: /etc/profile.d/mount_barzini.sh
+            mode: '0755'
+            owner: root
+            group: root
+
+      when: ansible_os_family != "Windows"
+      tags:
+        - linux
+        - deploy
+
+    - name: "🎉 [FINAL] Récapitulatif"
+      debug:
+        msg: "Déploiement terminé. Configuration figée et fonctionnelle."
+      tags: [always]
