@@ -334,7 +334,6 @@ echo "Code de retour : $?"
 **Ressources utiles :**
 - [Documentation officielle rsync](https://rsync.samba.org/documentation.html)
 - [Man page rsync](https://linux.die.net/man/1/rsync)
-- [OpenSSH Key Management](https://www.ssh.com/academy/ssh/keygen)
 - [IT-Connect — Sauvegarde incrémentale vs différentielle](https://www.it-connect.fr)
 
 **Homelab context :**
@@ -348,7 +347,3 @@ echo "Code de retour : $?"
 
 MIT — Libre utilisation, modification et redistribution avec attribution.
 
----
-
-**Projet réalisé dans le cadre de ma reconversion cybersécurité — Formation Admin Sys/Réseau/Cyber**  
-Portfolio complet : [lien vers site Hugo]
