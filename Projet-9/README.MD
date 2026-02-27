@@ -1,711 +1,354 @@
-# Infrastructure IT Entreprise (AD, GLPI, Ansible)
+# Backup Rsync + SSH — Solution de sauvegarde incrémentale & différentielle
 
-**Description** : Infrastructure complète d'entreprise avec Active Directory, gestion de parc GLPI et automatisation Ansible pour un environnement hybride Windows/Linux
-**Contexte homelab** : Déployé sur Proxmox (4 VMs dédiées)
-**Date** : Février 2026
+**Description courte** : Mise en place d'une solution de sauvegarde automatisée via rsync over SSH, avec deux stratégies complémentaires (incrémentale et différentielle), sur infrastructure virtualisée Proxmox.
+
+**Contexte homelab** : Déployé sur Proxmox — deux VMs Debian 12 Server en réseau local isolé.
+
+**Date** : Janvier 2026
 
 ---
 
 ## 📋 Vue d'ensemble
 
-Projet d'infrastructure IT complète simulant la gestion d'un parc de 40+ utilisateurs pour une entreprise fictive de développement de jeux vidéo. L'infrastructure intègre Active Directory pour la gestion centralisée des identités, GLPI pour l'inventaire du parc matériel, et Ansible pour l'automatisation des déploiements et configurations.
-
-Ce projet démontre la capacité à concevoir, déployer et maintenir une infrastructure d'entreprise hybride Windows/Linux en appliquant les bonnes pratiques de sécurité (méthodologie AGDLP, authentification Kerberos, automatisation des tâches récurrentes).
+Ce projet R&D répond à un besoin concret de résilience informatique : remplacer une solution de sauvegarde devenue incompatible avec une infrastructure virtualisée. Deux stratégies distinctes ont été testées et implémentées : une sauvegarde incrémentale des contextes métier (données applicatives), et une sauvegarde différentielle des machines virtuelles complètes. L'ensemble est automatisé via crontab et intégralement tracé via des fichiers de log horodatés.
 
 **Composants principaux :**
-- **Active Directory (Windows Server 2022)** : Annuaire centralisé, DNS, DHCP, GPO
-- **GLPI (Linux Debian)** : Gestion du parc matériel/logiciel, synchronisation LDAP avec AD
-- **Ansible** : Automatisation du montage de partages réseau, déploiement d'outils, patch management
+- **VM Client (simulation)** : Héberge les données sources simulant les contextes métier et les fichiers volumieux représentant des VMs
+- **VM Serveur de stockage** : Reçoit toutes les sauvegardes, organisées par contexte et par stratégie
+- **Scripts Bash** : 7 scripts couvrant sauvegardes complètes, incrémentales, différentielles et leurs restaurations respectives
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Réseau 192.168.10.0/24                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌──────────────────┐        ┌──────────────────┐           │
-│  │  Windows Server  │        │  Linux Server    │           │
-│  │    (DC-01)       │◄──────►│  (SRV-GLPI)      │           │
-│  │                  │  LDAP  │                  │           │
-│  │  - AD DS         │        │  - GLPI          │           │
-│  │  - DNS           │        │  - Ansible       │           │
-│  │  - DHCP          │        │  - Apache        │           │
-│  │  - File Server   │        │  - MariaDB       │           │
-│  └────────┬─────────┘        └──────────────────┘           │
-│           │                                                  │
-│           │ Kerberos Auth                                    │
-│           │                                                  │
-│  ┌────────┴─────────────────────────────────┐               │
-│  │                                           │               │
-│  ▼                                           ▼               │
-│ ┌──────────────┐                   ┌──────────────┐         │
-│ │ Client       │                   │ Client       │         │
-│ │ Windows 11   │                   │ Linux Ubuntu │         │
-│ │              │                   │              │         │
-│ │ - Auto mount │                   │ - Auto mount │         │
-│ │ - GPO apply  │                   │ - Kerberos   │         │
-│ └──────────────┘                   └──────────────┘         │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────┐        SSH + rsync         ┌──────────────────────────────┐
+│     VM CLIENT (simulation)  │ ─────────────────────────► │   VM SERVEUR DE STOCKAGE     │
+│       10.0.50.20            │    Authentification         │       10.0.50.10             │
+│                             │    par clé asymétrique      │                              │
+│  /home/sysadmin/            │                             │  /home/rsync_user/           │
+│  ├── SITE/                  │                             │  ├── SITE/                   │
+│  ├── RH/                    │                             │  │   ├── complete/            │
+│  ├── TICKETS/               │                             │  │   └── incremental/         │
+│  ├── FICHIERS/              │                             │  ├── RH/                     │
+│  ├── MAILS/                 │                             │  ├── TICKETS/                │
+│  └── VM_IMAGES/             │                             │  ├── FICHIERS/               │
+│      (fichiers lourds)      │                             │  ├── MAILS/                  │
+│                             │                             │  └── MACHINES/               │
+│  /home/sysadmin/logs_backup/│                             │      (sauvegarde différent.) │
+└─────────────────────────────┘                             └──────────────────────────────┘
+           │                                                           │
+           └──────────────── Proxmox Hypervisor ─────────────────────┘
+                              (réseau interne isolé)
+```
+
+**Cycle de sauvegarde Stratégie 1 (données métier) :**
+```
+Dimanche  → Sauvegarde COMPLÈTE (référence hebdomadaire)
+Lu → Sa   → Sauvegardes INCRÉMENTALES (delta depuis la dernière sauvegarde)
+            Chaque incrémentale utilise --link-dest pour les hard links
+            Rétention : 7 sauvegardes conservées
+```
+
+**Cycle de sauvegarde Stratégie 2 (VMs complètes) :**
+```
+Dimanche  → Sauvegarde COMPLÈTE (référence)
+Lu → Sa   → Sauvegardes DIFFÉRENTIELLES (delta depuis la référence du dimanche)
+            La référence est toujours la sauvegarde complète du dimanche
 ```
 
 **Infrastructure :**
-- **Plateforme** : Proxmox VE 8.x
-- **VMs déployées** :
-  - `DC-01` : Windows Server 2022 (4 vCPU, 8 Go RAM, 100 Go)
-  - `SRV-GLPI` : Debian 12 (2 vCPU, 4 Go RAM, 60 Go)
-  - `WIN-CLIENT` : Windows 11 Pro (2 vCPU, 4 Go RAM, 60 Go)
-  - `LIN-CLIENT` : Ubuntu 24.04 LTS (2 vCPU, 4 Go RAM, 40 Go)
-- **Réseau** : VLAN 10 (192.168.10.0/24)
-  - DC-01 : 192.168.10.10
-  - SRV-GLPI : 192.168.10.20
-- **Stockage** : Sauvegarde quotidienne sur NAS (PBS ou NFS)
+- **Plateforme** : Proxmox VE — 2 VMs Debian 12 Server (minimal, sans GUI)
+- **Ressources** : 2 vCPU / 2 Go RAM / 100 Go disque dynamique chacune
+- **Réseau** : Réseau interne Proxmox isolé — `10.0.50.0/24`
+- **Stockage** : Volumes locaux Proxmox (format qcow2)
 
 ---
 
 ## ⚙️ Prérequis
 
 **Versions testées :**
-- Windows Server 2022 Standard (Desktop Experience)
-- Debian 12 (Bookworm)
-- GLPI 10.0.x
-- Ansible 2.15+
-- Python 3.11+ (pour Ansible)
+- rsync : 3.2.7
+- OpenSSH : 9.2p1
+- OS : Debian 12 (Bookworm) — installation minimale
 
-**Dépendances système (Linux) :**
+**Dépendances :**
 ```bash
-# Sur SRV-GLPI (Debian)
-sudo apt update
-sudo apt install -y apache2 mariadb-server php php-{mysql,curl,gd,intl,ldap,apcu,xmlrpc,cas,zip,bz2,mbstring,xml}
-sudo apt install -y ansible python3-pip krb5-user sssd sssd-tools
+# Sur la VM client
+sudo apt update && sudo apt install -y rsync openssh-client
+
+# Sur la VM serveur
+sudo apt update && sudo apt install -y rsync openssh-server
 ```
 
 **Accès réseau requis :**
-- **Port 53 (TCP/UDP)** : DNS
-- **Port 88 (TCP/UDP)** : Kerberos
-- **Port 389 (TCP)** : LDAP
-- **Port 445 (TCP)** : SMB/CIFS (partages réseau)
-- **Port 3389 (TCP)** : RDP (administration)
-- **Port 80/443 (TCP)** : GLPI Web Interface
+- Port `22` (SSH) : Communication rsync entre client et serveur
 
 ---
 
 ## 🚀 Installation
 
-### Étape 1 : Déploiement Active Directory (Windows Server)
+### Étape 1 : Créer l'utilisateur dédié sur le serveur de stockage
 
-**1.1 Installation du rôle AD DS**
-```powershell
-# Installer le rôle Active Directory
-Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools
+```bash
+# Sur le serveur (10.0.50.10)
+sudo useradd -m -s /bin/bash rsync_user
+sudo passwd rsync_user
 
-# Promouvoir le serveur en contrôleur de domaine
-Install-ADDSForest `
-    -DomainName "vertex.local" `
-    -DomainNetbiosName "VERTEX" `
-    -ForestMode "WinThreshold" `
-    -DomainMode "WinThreshold" `
-    -InstallDns:$true `
-    -SafeModeAdministratorPassword (ConvertTo-SecureString "P@ssw0rd123!" -AsPlainText -Force) `
-    -Force:$true
+# Créer l'arborescence de destination
+sudo -u rsync_user mkdir -p /home/rsync_user/{SITE,RH,TICKETS,FICHIERS,MAILS}/{complete,incremental}
+sudo -u rsync_user mkdir -p /home/rsync_user/MACHINES
 ```
 
-**Explication** : Cette commande installe Active Directory Domain Services et crée un nouveau domaine `vertex.local`. L'option `-InstallDns:$true` installe automatiquement le rôle DNS intégré à AD, essentiel pour Kerberos.
+**Explication** : On crée un compte non-root dédié aux opérations de sauvegarde. Le principe du moindre privilège s'applique ici : rsync n'a besoin que d'accéder à son répertoire de stockage, pas aux ressources système.
 
-**1.2 Configuration DNS**
-```powershell
-# Vérifier que la zone DNS est créée
-Get-DnsServerZone
+### Étape 2 : Configurer l'authentification SSH par clé asymétrique
 
-# Configurer le serveur pour utiliser lui-même comme DNS primaire
-Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("127.0.0.1", "192.168.10.10")
-```
+```bash
+# Sur la VM client (10.0.50.20) — générer la paire de clés
+ssh-keygen -t ed25519 -C "backup_rsync_key" -f ~/.ssh/backup_key
 
-**1.3 Installation DHCP (optionnel)**
-```powershell
-Install-WindowsFeature -Name DHCP -IncludeManagementTools
-Add-DhcpServerv4Scope -Name "VLAN10" -StartRange 192.168.10.100 -EndRange 192.168.10.200 -SubnetMask 255.255.255.0
-Set-DhcpServerv4OptionValue -ScopeId 192.168.10.0 -DnsServer 192.168.10.10 -Router 192.168.10.1
-```
+# Copier la clé publique sur le serveur
+ssh-copy-id -i ~/.ssh/backup_key.pub rsync_user@10.0.50.10
 
-### Étape 2 : Création de la structure organisationnelle
-
-**2.1 Création des OUs (Organizational Units)**
-```powershell
-# Script PowerShell pour créer la structure OU
-$BaseDN = "DC=vertex,DC=local"
-
-# Créer les OUs départements
-$Departments = @("Direction", "Developpement", "Graphisme", "Audio", "Testing", "IT")
-
-foreach ($Dept in $Departments) {
-    New-ADOrganizationalUnit -Name $Dept -Path $BaseDN -ProtectedFromAccidentalDeletion $true
-}
-
-# Créer les sous-OUs pour utilisateurs et groupes
-foreach ($Dept in $Departments) {
-    New-ADOrganizationalUnit -Name "Users" -Path "OU=$Dept,$BaseDN" -ProtectedFromAccidentalDeletion $true
-    New-ADOrganizationalUnit -Name "Groups" -Path "OU=$Dept,$BaseDN" -ProtectedFromAccidentalDeletion $true
-}
-```
-
-**2.2 Création des utilisateurs (exemple)**
-```powershell
-# Exemple : créer un utilisateur dans le département Développement
-$SecurePassword = ConvertTo-SecureString "TempPass2024!" -AsPlainText -Force
-
-New-ADUser `
-    -Name "Jean Martin" `
-    -GivenName "Jean" `
-    -Surname "Martin" `
-    -SamAccountName "jmartin" `
-    -UserPrincipalName "jmartin@vertex.local" `
-    -Path "OU=Users,OU=Developpement,DC=vertex,DC=local" `
-    -AccountPassword $SecurePassword `
-    -Enabled $true `
-    -ChangePasswordAtLogon $true
-```
-
-**2.3 Application de la méthodologie AGDLP**
-```powershell
-# Créer un groupe GLOBAL pour les développeurs
-New-ADGroup `
-    -Name "GG_Developpeurs" `
-    -GroupScope Global `
-    -Path "OU=Groups,OU=Developpement,DC=vertex,DC=local"
-
-# Créer un groupe DOMAIN LOCAL pour l'accès au partage Dev
-New-ADGroup `
-    -Name "DL_Acces_Partage_Dev" `
-    -GroupScope DomainLocal `
-    -Path "OU=Groups,OU=Developpement,DC=vertex,DC=local"
-
-# Ajouter l'utilisateur au groupe global
-Add-ADGroupMember -Identity "GG_Developpeurs" -Members "jmartin"
-
-# Donner les permissions au groupe domain local
-# (À faire via l'interface ou icacls sur le partage réseau)
+# Tester la connexion sans mot de passe
+ssh -i ~/.ssh/backup_key rsync_user@10.0.50.10
 ```
 
 **Points d'attention :**
-- **AGDLP** : Toujours suivre Accounts → Global groups → Domain Local groups → Permissions
-- **Mots de passe** : Utiliser une politique de complexité forte en production
-- **DNS** : S'assurer que le serveur DNS pointe bien sur lui-même (127.0.0.1 ou IP du DC)
+- Utiliser `ed25519` plutôt que RSA 2048 : plus court, plus sécurisé, recommandé en 2024+
+- La clé privée reste sur le client — **ne jamais la copier ailleurs**
+- Vérifier les permissions : `chmod 600 ~/.ssh/backup_key`
 
-### Étape 3 : Configuration des partages réseau
+### Étape 3 : Déployer les scripts de sauvegarde
 
-**3.1 Création du partage réseau**
-```powershell
-# Créer le répertoire de partage
-New-Item -Path "D:\Partages\Developpement" -ItemType Directory
-
-# Créer le partage SMB
-New-SmbShare -Name "Developpement" -Path "D:\Partages\Developpement" -FullAccess "VERTEX\DL_Acces_Partage_Dev"
-
-# Configurer les permissions NTFS (important !)
-icacls "D:\Partages\Developpement" /grant "VERTEX\DL_Acces_Partage_Dev:(OI)(CI)M"
-```
-
-**3.2 Enregistrement des SPNs (Service Principal Names)**
-```powershell
-# CRUCIAL pour Kerberos : enregistrer les SPNs sur le compte machine du serveur de fichiers
-setspn -A CIFS/dc-01.vertex.local DC-01$
-setspn -A CIFS/dc-01 DC-01$
-
-# Vérifier l'enregistrement
-setspn -L DC-01$
-```
-
-**Explication** : Les SPNs permettent à Kerberos d'authentifier le service de partage de fichiers (CIFS). Sans SPNs correctement enregistrés, les clients recevront l'erreur "Server not found in Kerberos database".
-
-### Étape 4 : Déploiement GLPI (Linux)
-
-**4.1 Installation de GLPI**
 ```bash
-# Télécharger GLPI
-cd /tmp
-wget https://github.com/glpi-project/glpi/releases/download/10.0.12/glpi-10.0.12.tgz
-tar -xzf glpi-10.0.12.tgz
-sudo mv glpi /var/www/html/
-
-# Configurer les permissions
-sudo chown -R www-data:www-data /var/www/html/glpi
-sudo chmod -R 755 /var/www/html/glpi
+# Sur la VM client
+git clone https://github.com/<votre-username>/backup-rsync-ssh.git
+cd backup-rsync-ssh/scripts
+chmod +x *.sh
 ```
 
-**4.2 Configuration Apache**
+**Adapter les variables de configuration** dans chaque script :
 ```bash
-sudo tee /etc/apache2/sites-available/glpi.conf <<EOF
-<VirtualHost *:80>
-    ServerName glpi.vertex.local
-    DocumentRoot /var/www/html/glpi
-
-    <Directory /var/www/html/glpi>
-        Options FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
-
-    ErrorLog \${APACHE_LOG_DIR}/glpi_error.log
-    CustomLog \${APACHE_LOG_DIR}/glpi_access.log combined
-</VirtualHost>
-EOF
-
-# Activer le site et les modules nécessaires
-sudo a2ensite glpi
-sudo a2enmod rewrite
-sudo systemctl restart apache2
+# Variables à modifier selon votre environnement
+BACKUP_SERVER="10.0.50.10"       # IP du serveur de stockage
+BACKUP_USER="rsync_user"          # Utilisateur SSH dédié
+SSH_KEY="~/.ssh/backup_key"       # Chemin vers la clé privée SSH
+RETENTION=7                        # Nombre de sauvegardes à conserver
 ```
 
-**4.3 Configuration de la base de données MariaDB**
+### Étape 4 : Configurer la planification cron
+
 ```bash
-# Sécuriser MariaDB
-sudo mysql_secure_installation
-
-# Créer la base GLPI
-sudo mysql -u root -p <<EOF
-CREATE DATABASE glpi CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'glpi_user'@'localhost' IDENTIFIED BY 'SecurePassword123!';
-GRANT ALL PRIVILEGES ON glpi.* TO 'glpi_user'@'localhost';
-FLUSH PRIVILEGES;
-EOF
+# Éditer la crontab de l'utilisateur courant
+crontab -e
 ```
 
-**4.4 Configuration LDAP dans GLPI**
-
-Se connecter à GLPI (`http://192.168.10.20/glpi`) et configurer l'authentification LDAP :
-
-- **Serveur** : `192.168.10.10` (DC-01)
-- **Port** : `389`
-- **BaseDN** : `DC=vertex,DC=local`
-- **Filtre de connexion** : `(&(objectClass=user)(objectCategory=person)(sAMAccountName=*))`
-- **Compte de liaison** : `cn=glpi-ldap,cn=Users,dc=vertex,dc=local`
-- **Mot de passe** : [mot de passe du compte de service]
-
-**Points d'attention :**
-- Créer un compte de service dédié dans AD avec des permissions de lecture LDAP uniquement
-- Tester la connexion LDAP avant d'activer la synchronisation automatique
-
-### Étape 5 : Déploiement Ansible (automatisation)
-
-**5.1 Installation Ansible**
 ```bash
-# Sur SRV-GLPI
-sudo apt install -y ansible python3-pip python3-winrm
+# Contenu de la crontab
+# ┌───────────── minute (0-59)
+# │ ┌───────────── heure (0-23)
+# │ │ ┌───────────── jour du mois (1-31)
+# │ │ │ ┌───────────── mois (1-12)
+# │ │ │ │ ┌───────────── jour de la semaine (0=dimanche)
+# │ │ │ │ │
 
-# Installer les modules Python pour Windows
-pip3 install pywinrm[credssp]
+# Stratégie 1 — Sauvegarde complète (dimanche à 2h00)
+0 2 * * 0 /home/sysadmin/scripts/backup_complete_s1.sh >> /home/sysadmin/logs_backup/cron_s1.log 2>&1
+
+# Stratégie 1 — Sauvegarde incrémentale (lundi-samedi à 2h00)
+0 2 * * 1-6 /home/sysadmin/scripts/backup_incremental_s1.sh >> /home/sysadmin/logs_backup/cron_s1.log 2>&1
+
+# Stratégie 2 — Sauvegarde complète VMs (dimanche à 3h00)
+0 3 * * 0 /home/sysadmin/scripts/backup_complete_s2.sh >> /home/sysadmin/logs_backup/cron_s2.log 2>&1
+
+# Stratégie 2 — Sauvegarde différentielle VMs (lundi-samedi à 3h00)
+0 3 * * 1-6 /home/sysadmin/scripts/backup_differential_s2.sh >> /home/sysadmin/logs_backup/cron_s2.log 2>&1
 ```
-
-**5.2 Configuration de l'inventaire Ansible**
-```bash
-sudo mkdir -p /etc/ansible
-sudo tee /etc/ansible/hosts <<EOF
-[windows_clients]
-win-client ansible_host=192.168.10.50
-
-[linux_clients]
-lin-client ansible_host=192.168.10.51
-
-[windows_clients:vars]
-ansible_user=administrator@vertex.local
-ansible_password=AdminPass123!
-ansible_connection=winrm
-ansible_winrm_transport=kerberos
-ansible_winrm_server_cert_validation=ignore
-
-[linux_clients:vars]
-ansible_user=root
-ansible_ssh_private_key_file=/root/.ssh/id_rsa
-EOF
-```
-
-**5.3 Configuration Kerberos pour Ansible**
-```bash
-sudo tee /etc/krb5.conf <<EOF
-[libdefaults]
-    default_realm = VERTEX.LOCAL
-    dns_lookup_realm = false
-    dns_lookup_kdc = true
-    ticket_lifetime = 24h
-    renew_lifetime = 7d
-    forwardable = true
-
-[realms]
-    VERTEX.LOCAL = {
-        kdc = 192.168.10.10
-        admin_server = 192.168.10.10
-    }
-
-[domain_realm]
-    .vertex.local = VERTEX.LOCAL
-    vertex.local = VERTEX.LOCAL
-EOF
-```
-
-**Explication** : Cette configuration permet à Ansible d'utiliser Kerberos pour s'authentifier auprès des clients Windows sans stocker de mots de passe en clair.
 
 ---
 
 ## 🔧 Configuration
 
-### Fichiers de configuration principaux
+### Options rsync utilisées
 
-**Playbook Ansible : Montage automatique des partages réseau (Windows)**  
-`/etc/ansible/playbooks/mount-network-drives.yml`
-
-```yaml
----
-- name: Montage automatique des partages réseau sur clients Windows
-  hosts: windows_clients
-  gather_facts: no
-  tasks:
-    - name: Créer une tâche planifiée pour monter les lecteurs réseau
-      win_scheduled_task:
-        name: "Mount Network Drives"
-        description: "Monte les partages réseau en fonction du groupe AD de l'utilisateur"
-        actions:
-          - path: powershell.exe
-            arguments: >-
-              -ExecutionPolicy Bypass
-              -File "C:\Scripts\Mount-Drives.ps1"
-        triggers:
-          - type: logon
-        username: SYSTEM
-        logon_type: interactive_token  # CRUCIAL : utilise le token de l'utilisateur connecté
-        run_level: highest
-        state: present
-        enabled: yes
-
-    - name: Déployer le script PowerShell de montage
-      win_copy:
-        src: files/Mount-Drives.ps1
-        dest: C:\Scripts\Mount-Drives.ps1
+**Stratégie 1 — Incrémentale avec hard links (`--link-dest`)**
+```bash
+rsync -avz --delete \
+  --link-dest="/home/rsync_user/SITE/incremental/latest" \
+  -e "ssh -i ~/.ssh/backup_key -o StrictHostKeyChecking=no" \
+  /home/sysadmin/SITE/ \
+  rsync_user@10.0.50.10:/home/rsync_user/SITE/incremental/$(date +%Y%m%d_%H%M%S)/
 ```
 
-**Script PowerShell : Montage des lecteurs réseau**  
-`/etc/ansible/playbooks/files/Mount-Drives.ps1`
+| Option | Rôle |
+|---|---|
+| `-a` | Mode archive : préserve permissions, timestamps, liens symboliques, owner |
+| `-v` | Verbose : affiche les fichiers transférés (pour les logs) |
+| `-z` | Compression des données en transit |
+| `--delete` | Supprime sur la destination les fichiers supprimés à la source |
+| `--link-dest` | Crée des hard links vers les fichiers inchangés (économie d'espace majeure) |
+| `-e "ssh -i ..."` | Spécifie la commande SSH avec la clé dédiée |
 
-```powershell
-# Script de montage automatique des partages réseau
-# Basé sur l'appartenance aux groupes AD de l'utilisateur
-
-param()
-
-# Fonction de logging
-function Write-Log {
-    param([string]$Message)
-    $LogPath = "C:\Scripts\Logs\mount-drives.log"
-    $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$Timestamp - $Message" | Out-File -FilePath $LogPath -Append
-}
-
-Write-Log "Script de montage des partages démarré"
-
-# Vérifier si l'utilisateur est un compte de domaine
-$CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-if ($CurrentUser -notlike "VERTEX\*") {
-    Write-Log "Utilisateur local détecté ($CurrentUser), pas de montage"
-    exit 0
-}
-
-Write-Log "Utilisateur domaine détecté : $CurrentUser"
-
-# Fonction pour monter un lecteur réseau
-function Mount-NetworkDrive {
-    param(
-        [string]$DriveLetter,
-        [string]$SharePath,
-        [string]$Label
-    )
-    
-    try {
-        # Vérifier si le lecteur est déjà monté
-        if (Test-Path "${DriveLetter}:") {
-            Write-Log "Lecteur ${DriveLetter}: déjà monté, démontage..."
-            net use "${DriveLetter}:" /delete /yes 2>&1 | Out-Null
-        }
-        
-        # Monter le lecteur
-        $null = New-PSDrive -Name $DriveLetter -PSProvider FileSystem -Root $SharePath -Persist -Scope Global -ErrorAction Stop
-        Write-Log "Lecteur ${DriveLetter}: ($Label) monté avec succès : $SharePath"
-        return $true
-    }
-    catch {
-        Write-Log "ERREUR lors du montage de ${DriveLetter}: - $($_.Exception.Message)"
-        return $false
-    }
-}
-
-# Récupérer les groupes AD de l'utilisateur
-try {
-    $UserGroups = ([ADSISEARCHER]"(samAccountName=$($env:USERNAME))").FindOne().Properties.memberof
-}
-catch {
-    Write-Log "ERREUR : Impossible de récupérer les groupes AD - $($_.Exception.Message)"
-    exit 1
-}
-
-# Montage selon les groupes
-if ($UserGroups -match "GG_Developpeurs") {
-    Mount-NetworkDrive -DriveLetter "D" -SharePath "\\dc-01.vertex.local\Developpement" -Label "Développement"
-    Mount-NetworkDrive -DriveLetter "P" -SharePath "\\dc-01.vertex.local\Projets" -Label "Projets"
-}
-
-if ($UserGroups -match "GG_Direction") {
-    Mount-NetworkDrive -DriveLetter "R" -SharePath "\\dc-01.vertex.local\Direction" -Label "Direction"
-}
-
-# Montage du lecteur commun pour tous
-Mount-NetworkDrive -DriveLetter "C" -SharePath "\\dc-01.vertex.local\Commun" -Label "Commun"
-
-Write-Log "Script de montage terminé"
+**Stratégie 2 — Différentielle (référence fixe du dimanche)**
+```bash
+rsync -avz --delete \
+  --link-dest="/home/rsync_user/MACHINES/complete_reference" \
+  -e "ssh -i ~/.ssh/backup_key" \
+  /home/sysadmin/VM_IMAGES/ \
+  rsync_user@10.0.50.10:/home/rsync_user/MACHINES/differential/$(date +%Y%m%d_%H%M%S)/
 ```
 
-**Points d'attention critiques :**
-- **`logon_type: interactive_token`** : ESSENTIEL pour que le script s'exécute avec le token Kerberos de l'utilisateur réel et non en SYSTEM
-- **Gestion des conflits de lettres** : Démonter le lecteur existant avant de remonter
-- **Logs détaillés** : Facilite le debug en cas de problème
+### Variables d'environnement des scripts
 
-### Variables d'environnement
-
-| Variable | Valeur | Description |
-|----------|--------|-------------|
-| `ANSIBLE_HOST_KEY_CHECKING` | `False` | Désactive la vérification des clés SSH (dev uniquement) |
-| `KRB5_CONFIG` | `/etc/krb5.conf` | Chemin vers la config Kerberos |
-| `GLPI_DB_HOST` | `localhost` | Hôte de la base de données GLPI |
-| `GLPI_DB_NAME` | `glpi` | Nom de la base de données GLPI |
-| `GLPI_DB_USER` | `glpi_user` | Utilisateur DB GLPI |
+| Variable | Valeur exemple | Description |
+|---|---|---|
+| `BACKUP_SERVER` | `10.0.50.10` | IP du serveur de stockage |
+| `BACKUP_USER` | `rsync_user` | Utilisateur SSH dédié |
+| `SSH_KEY` | `~/.ssh/backup_key` | Clé privée pour l'authentification |
+| `LOG_DIR` | `/home/sysadmin/logs_backup` | Répertoire des fichiers de log |
+| `RETENTION` | `7` | Nombre de sauvegardes incrémentales à conserver |
+| `DATE` | `$(date +%Y%m%d_%H%M%S)` | Horodatage pour nommage des répertoires |
 
 ---
 
 ## 📊 Utilisation
 
-### Accès
+### Lancer une sauvegarde manuellement
 
-- **Active Directory** : RDP sur `192.168.10.10` (administrator@vertex.local)
-- **GLPI Interface Web** : `http://192.168.10.20/glpi`
-  - Login par défaut (première installation) : `glpi` / `glpi`
-  - Après config LDAP : utilisateurs du domaine AD
-
-### Commandes utiles
-
-**Active Directory (PowerShell)**
-```powershell
-# Vérifier le statut du contrôleur de domaine
-Get-ADDomainController
-
-# Lister tous les utilisateurs
-Get-ADUser -Filter * | Select-Object Name, SamAccountName, Enabled
-
-# Forcer la réplication AD
-repadmin /syncall /AdeP
-
-# Vérifier les SPNs d'un compte
-setspn -L DC-01$
-
-# Consulter les événements Kerberos
-Get-WinEvent -LogName Security | Where-Object {$_.Id -eq 4768 -or $_.Id -eq 4769} | Select-Object -First 10
-```
-
-**GLPI (Linux)**
 ```bash
-# Vérifier le statut d'Apache
-sudo systemctl status apache2
+# Sauvegarde complète Stratégie 1 (données métier)
+bash /home/sysadmin/scripts/backup_complete_s1.sh
 
-# Consulter les logs GLPI
-sudo tail -f /var/www/html/glpi/files/_log/php-errors.log
+# Sauvegarde incrémentale Stratégie 1
+bash /home/sysadmin/scripts/backup_incremental_s1.sh
 
-# Tester la connexion LDAP manuellement
-ldapsearch -x -H ldap://192.168.10.10 -D "cn=glpi-ldap,cn=Users,dc=vertex,dc=local" -W -b "dc=vertex,dc=local" "(objectClass=user)"
+# Sauvegarde différentielle Stratégie 2 (VMs)
+bash /home/sysadmin/scripts/backup_differential_s2.sh
 ```
 
-**Ansible**
+### Consulter les logs
+
 ```bash
-# Tester la connectivité aux clients Windows
-ansible windows_clients -m win_ping
+# Derniers logs de sauvegarde incrémentale
+ls -lt /home/sysadmin/logs_backup/ | head -10
 
-# Tester la connectivité aux clients Linux
-ansible linux_clients -m ping
+# Lire un fichier de log spécifique
+cat /home/sysadmin/logs_backup/backup_incremental_20260115_020001.log
 
-# Exécuter le playbook de montage de partages
-ansible-playbook /etc/ansible/playbooks/mount-network-drives.yml
-
-# Mode verbose pour debug
-ansible-playbook /etc/ansible/playbooks/mount-network-drives.yml -vvv
+# Suivre les logs en temps réel lors d'une sauvegarde
+tail -f /home/sysadmin/logs_backup/cron_s1.log
 ```
 
-### Cas d'usage
+### Lancer une restauration
 
-**Ajouter un nouveau utilisateur et lui donner accès au partage Développement**
-```powershell
-# 1. Créer l'utilisateur dans AD
-$SecurePassword = ConvertTo-SecureString "TempPass2024!" -AsPlainText -Force
-New-ADUser -Name "Sophie Durand" -SamAccountName "sdurand" -UserPrincipalName "sdurand@vertex.local" -Path "OU=Users,OU=Developpement,DC=vertex,DC=local" -AccountPassword $SecurePassword -Enabled $true
-
-# 2. Ajouter l'utilisateur au groupe GG_Developpeurs
-Add-ADGroupMember -Identity "GG_Developpeurs" -Members "sdurand"
-
-# 3. Le montage automatique se fera lors de la prochaine connexion (via tâche planifiée)
-```
-
-**Déployer un patch de sécurité sur tous les clients Windows**
 ```bash
-# Créer un playbook pour les mises à jour Windows
-ansible-playbook /etc/ansible/playbooks/windows-updates.yml
+# Restauration incrémentale — choisir la version à restaurer
+bash /home/sysadmin/scripts/restore_incremental_s1.sh 20260115_020001
+
+# Restauration différentielle VM
+bash /home/sysadmin/scripts/restore_differential_s2.sh 20260115_030001
+```
+
+### Vérifier l'espace disque économisé par les hard links
+
+```bash
+# Sur le serveur de stockage
+du -sh /home/rsync_user/SITE/incremental/*/
+df -h /home/rsync_user/
 ```
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Erreur : "Server not found in Kerberos database"
-
-**Cause** : Les SPNs (Service Principal Names) ne sont pas enregistrés dans Active Directory pour le service de partage de fichiers.
-
-**Solution** :
-```powershell
-# Sur le contrôleur de domaine, enregistrer les SPNs
-setspn -A CIFS/dc-01.vertex.local DC-01$
-setspn -A CIFS/dc-01 DC-01$
-
-# Vérifier l'enregistrement
-setspn -L DC-01$
-
-# Forcer la réplication AD pour propager les changements
-repadmin /syncall /AdeP
-```
-
-### Erreur : Les partages réseau ne se montant pas automatiquement
-
-**Cause** : La tâche planifiée Windows s'exécute en contexte SYSTEM au lieu d'utiliser le token de l'utilisateur connecté.
-
-**Solution** :
-```powershell
-# Vérifier le type de logon de la tâche planifiée
-Get-ScheduledTask -TaskName "Mount Network Drives" | Select-Object -ExpandProperty Principal
-
-# Si LogonType n'est pas "InteractiveToken", recréer la tâche
-Unregister-ScheduledTask -TaskName "Mount Network Drives" -Confirm:$false
-
-# Créer avec le bon logon type via Ansible ou manuellement :
-# - Ouvrir Task Scheduler
-# - Créer une tâche qui se déclenche "At log on"
-# - Dans Security options : "Run only when user is logged on"
-# - Cocher "Run with highest privileges"
-```
-
-### Erreur : GLPI ne synchronise pas les utilisateurs LDAP
-
-**Cause** : Le compte de service GLPI n'a pas les permissions de lecture sur les OUs Active Directory.
-
-**Solution** :
-```powershell
-# Sur le contrôleur de domaine, donner les permissions de lecture LDAP au compte glpi-ldap
-# Via PowerShell (nécessite le module ActiveDirectory)
-
-$Account = "VERTEX\glpi-ldap"
-$OUs = @(
-    "OU=Direction,DC=vertex,DC=local",
-    "OU=Developpement,DC=vertex,DC=local",
-    "OU=Graphisme,DC=vertex,DC=local"
-    # ... autres OUs
-)
-
-foreach ($OU in $OUs) {
-    $ACL = Get-Acl -Path "AD:$OU"
-    $Rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
-        (New-Object System.Security.Principal.NTAccount($Account)),
-        [System.DirectoryServices.ActiveDirectoryRights]::GenericRead,
-        [System.Security.AccessControl.AccessControlType]::Allow
-    )
-    $ACL.AddAccessRule($Rule)
-    Set-Acl -Path "AD:$OU" -AclObject $ACL
-}
-```
-
-### Erreur : Ansible ne peut pas se connecter aux clients Windows
-
-**Cause** : WinRM n'est pas configuré ou Kerberos ne fonctionne pas correctement.
-
+### Erreur : `Permission denied (publickey)`
+**Cause** : La clé publique n'est pas correctement déployée sur le serveur, ou les permissions du répertoire `.ssh` sont incorrectes.
 **Solution** :
 ```bash
-# Sur le serveur Ansible, vérifier la configuration Kerberos
-klist  # Doit afficher un ticket valide
+# Vérifier les permissions sur le serveur
+chmod 700 /home/rsync_user/.ssh
+chmod 600 /home/rsync_user/.ssh/authorized_keys
 
-# Si pas de ticket, obtenir un ticket Kerberos
-kinit administrator@VERTEX.LOCAL
+# Re-déployer la clé publique
+ssh-copy-id -i ~/.ssh/backup_key.pub rsync_user@10.0.50.10
+```
 
-# Vérifier à nouveau
-klist
+### Erreur : `rsync: command not found`
+**Cause** : rsync non installé sur l'une des deux machines.
+**Solution** :
+```bash
+sudo apt install -y rsync
+which rsync   # Doit retourner /usr/bin/rsync
+```
 
-# Tester la connexion WinRM manuellement
-ansible windows_clients -m win_ping -vvv
+### Erreur : `ssh: Could not resolve hostname`
+**Cause** : Problème DNS ou résolution de nom sur le réseau interne Proxmox.
+**Solution** :
+```bash
+# Utiliser l'IP directement plutôt que le hostname
+# Ou ajouter une entrée dans /etc/hosts
+echo "10.0.50.10  backup-server" | sudo tee -a /etc/hosts
+```
 
-# Si échec, vérifier WinRM sur le client Windows (en PowerShell sur le client)
-Enable-PSRemoting -Force
-Set-Item WSMan:\localhost\Service\Auth\Kerberos -Value $true
-Restart-Service WinRM
+### La rétention ne s'applique pas (accumulation de sauvegardes)
+**Cause** : La fonction de suppression dans le script ne compte pas correctement les sauvegardes.
+**Solution** :
+```bash
+# Vérifier le nombre de répertoires présents
+ls /home/rsync_user/SITE/incremental/ | wc -l
+
+# Tester la logique de suppression manuellement
+ls -t /home/rsync_user/SITE/incremental/ | tail -n +8
 ```
 
 ### Logs et debug
 
-**Active Directory**
-```powershell
-# Logs Kerberos (Event ID 4768 = TGT request, 4769 = Service ticket request)
-Get-WinEvent -LogName Security -FilterXPath "*[System[(EventID=4768 or EventID=4769)]]" | Select-Object -First 20 | Format-Table TimeCreated, Message -AutoSize
-
-# Logs de réplication AD
-repadmin /showrepl
-```
-
-**GLPI**
 ```bash
-# Logs Apache
-sudo tail -f /var/log/apache2/glpi_error.log
+# Lancer rsync en mode verbose + dry-run (simulation sans modification)
+rsync -avz --dry-run --stats \
+  -e "ssh -i ~/.ssh/backup_key" \
+  /home/sysadmin/SITE/ \
+  rsync_user@10.0.50.10:/home/rsync_user/SITE/complete/
 
-# Logs applicatifs GLPI
-sudo tail -f /var/www/html/glpi/files/_log/php-errors.log
-
-# Logs de synchronisation LDAP (via interface web)
-# Configuration > Authentification > Annuaire LDAP > [Nom de l'annuaire] > Tester la connexion
-```
-
-**Ansible**
-```bash
-# Mode debug complet
-export ANSIBLE_DEBUG=1
-ansible-playbook playbook.yml -vvvv
-
-# Logs de Kerberos côté client
-sudo tail -f /var/log/krb5libs.log  # Si configuré
+# Codes de retour rsync courants
+# 0 = Succès
+# 23 = Transfert partiel (certains fichiers ignorés)
+# 24 = Fichiers disparus pendant le transfert (normal si fichiers temporaires)
+echo "Code de retour : $?"
 ```
 
 ---
 
 ## 📝 Notes
 
+**Points d'amélioration possibles :**
+- Notifications par email en cas d'échec de sauvegarde (msmtp ou ssmtp)
+- Monitoring de l'espace disque avec alerte seuil (script dédié ou intégration Zabbix/Wazuh)
+- Chiffrement GPG des sauvegardes avant transfert (conformité données sensibles)
+- Sauvegarde déportée vers NAS ou stockage distant (offsite backup)
+- Tests de restauration automatiques périodiques avec vérification d'intégrité (sha256sum)
+- Rotation et compression des fichiers de log (logrotate)
 
 **Ressources utiles :**
-- [Documentation Microsoft AD DS](https://learn.microsoft.com/windows-server/identity/ad-ds/)
-- [GLPI Documentation](https://glpi-install.readthedocs.io/)
-- [Ansible Windows Guide](https://docs.ansible.com/ansible/latest/os_guide/windows_usage.html)
-- [Kerberos MIT Documentation](https://web.mit.edu/kerberos/krb5-latest/doc/)
-- [AGDLP Best Practices](https://learn.microsoft.com/windows-server/identity/ad-ds/plan/security-best-practices/implementing-least-privilege-administrative-models)
+- [Documentation officielle rsync](https://rsync.samba.org/documentation.html)
+- [Man page rsync](https://linux.die.net/man/1/rsync)
+- [OpenSSH Key Management](https://www.ssh.com/academy/ssh/keygen)
+- [IT-Connect — Sauvegarde incrémentale vs différentielle](https://www.it-connect.fr)
 
 **Homelab context :**
-- Ce projet s'intègre dans un environnement Proxmox plus large avec pfSense (routage/firewall) et NAS Synology (stockage)
-- Les VMs sont sauvegardées quotidiennement via Proxmox Backup Server
-- À terme : segmentation réseau avec VLANs dédiés pour chaque service (Management, Production, DMZ)
+- Infrastructure Proxmox — réseau interne isolé (pas de routage externe nécessaire)
+- SSH configuré en écoute sur le port 22 standard dans cet environnement de lab (recommandation prod : port non standard + fail2ban)
+- Scripts testés sur Debian 12 — compatibles Ubuntu 22.04+
 
 ---
 
 ## 📄 Licence
 
-Projet personnel à but pédagogique - Libre de réutilisation et modification
+MIT — Libre utilisation, modification et redistribution avec attribution.
 
 ---
 
+**Projet réalisé dans le cadre de ma reconversion cybersécurité — Formation Admin Sys/Réseau/Cyber**  
+Portfolio complet : [lien vers site Hugo]
