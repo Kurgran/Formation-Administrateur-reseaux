@@ -347,3 +347,10 @@ echo "Code de retour : $?"
 
 MIT — Libre utilisation, modification et redistribution avec attribution.
 
+<<<<<<< Updated upstream
+=======
+---
+
+
+**Projet réalisé dans le cadre de ma reconversion cybersécurité — Formation Admin Sys/Réseau/Cyber**  
+>>>>>>> Stashed changes
