@@ -253,4 +253,4 @@ Ce projet est un exercice de formation. Les documents et schémas sont partagés
 
 **Projet réalisé dans le cadre de ma reconversion en cybersécurité — Formation OpenClassrooms Administrateur Systèmes, Réseaux et Cybersécurité**
 
-Portfolio complet : *[lien vers site Hugo à compléter]*
+Portfolio complet : *[https://appercel-clement.netlify.app/posts/assr10/]*
