@@ -1,4 +1,4 @@
-# P11 — Sécurisation du SI de Forges de l'Ouest (Bureau d'études)
+# P10 — Sécurisation du SI de Forges de l'Ouest (Bureau d'études)
 
 **Description courte** : Conception et planification de la sécurisation complète du réseau d'un bureau d'études industriel, suite à une cyberattaque, en conformité avec les recommandations ANSSI.
 
