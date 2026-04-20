@@ -1,0 +1,24 @@
+# Artefacts macOS / éditeurs
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Sorties locales du pentest (à ne pas pousser)
+dump_ldap/
+*.hash
+*.ntds
+*.kirbi
+*.ccache
+loot/
+captures/
+
+# Notes personnelles non destinées au repo
+notes-perso.md
+TODO.local.md
+
+# Archives et exports
+*.zip
+*.tar.gz
+*.7z
